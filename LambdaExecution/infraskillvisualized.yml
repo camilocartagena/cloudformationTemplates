@@ -1,0 +1,136 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Resources:
+  # S3 Bucket for Excel Upload
+  ExcelUploadBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      Bucket: ExcelUpCartagena
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # DynamoDB Table for Skill Data
+  SkillDataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: SkillDataTable
+      AttributeDefinitions:
+        - AttributeName: name
+          AttributeType: S
+        - AttributeName: skill
+          AttributeType: S
+      KeySchema:
+        - AttributeName: name
+          KeyType: HASH
+        - AttributeName: skill
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST # Minimiza costos con capacidad bajo demanda
+
+  # Lambda Execution Role
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - s3:GetObject
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+  # Lambda Function to process Excel and store in DynamoDB
+  ProcessExcelLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ProcessExcelLambda
+      Handler: lambda_function.lambda_handler
+      Role: LambdaExecutionRole # Created by console in Roles
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import pandas as pd
+          import io
+
+          s3 = boto3.client('s3')
+          dynamodb = boto3.resource('dynamodb')
+          table = dynamodb.Table('SkillDataTable')
+
+          def lambda_handler(event, context):
+              # Get the bucket and file key from the S3 event
+              bucket = event['Records'][0]['s3']['bucket']['name']
+              key = event['Records'][0]['s3']['object']['key']
+
+              # Download the file from S3
+              response = s3.get_object(Bucket=bucket, Key=key)
+              content = response['Body'].read()
+
+              # Read the Excel file
+              df = pd.read_excel(io.BytesIO(content))
+
+              # Iterate over rows and put them in DynamoDB
+              for index, row in df.iterrows():
+                  table.put_item(
+                      Item={
+                          'name': row['name'],
+                          'company': row['company'],
+                          'skill': row['skill'],
+                          'level': int(row['level'])
+                      }
+                  )
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps('File processed and data saved!')
+              }
+
+      Runtime: python3.9
+      Timeout: 30
+      MemorySize: 128
+      Events:
+        S3UploadEvent:
+          Type: S3
+          Properties:
+            Bucket: ExcelUpCartagena
+            Events: s3:ObjectCreated:*
+
+  # CloudWatch Log Group for Lambda
+  LambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: ProcessExcelLambda # Created by console in CloudWatch
+      RetentionInDays: 5
+
+  # S3 Bucket for Static Website (to display skill statistics)
+  StaticWebsiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      Bucket: SkillwsCartagena
+      WebsiteConfiguration:
+        IndexDocument: index.html
+
+  # Static Website Content Policy
+  StaticWebsiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: SkillwsCartagena
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action: s3:GetObject
+            Resource: arn:aws:s3:::SkillwsCartagena/*
+            Principal: "*"
