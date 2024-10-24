@@ -4,29 +4,34 @@ Resources:
   ExcelUploadBucket:
     Type: AWS::S3::Bucket
     Properties:
-      Bucket: ExcelUpCartagena
+      BucketName: excel-up-cartagena
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
 
-  # DynamoDB Table for Skill Data
-  SkillDataTable:
+  # DynamoDB BD for Skill Data
+  SkillDataBase:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: SkillDataTable
-      AttributeDefinitions:
-        - AttributeName: name
-          AttributeType: S
-        - AttributeName: skill
-          AttributeType: S
-      KeySchema:
-        - AttributeName: name
-          KeyType: HASH
-        - AttributeName: skill
-          KeyType: RANGE
-      BillingMode: PAY_PER_REQUEST # Minimiza costos con capacidad bajo demanda
+          TableName: "user-skills"  # Specify the name of your DynamoDB table
+          AttributeDefinitions:
+            - AttributeName: "uuid"    # Primary key attribute
+              AttributeType: "S"       # 'S' for String
+            - AttributeName: "skill" # Attribute for Global Secondary Index (GSI)
+              AttributeType: "S"
+          KeySchema:
+            - AttributeName: "uuid"    # Partition key (primary key)
+              KeyType: "HASH"          # HASH specifies that it's the partition key
+          GlobalSecondaryIndexes:      # Define a GSI for the 'company' attribute
+            - IndexName: "SkillIndex"
+              KeySchema:
+                - AttributeName: "skill"  # Use 'skill' as the key for the GSI
+                  KeyType: "HASH"
+              Projection:
+                ProjectionType: "ALL"   # You can specify 'KEYS_ONLY', 'INCLUDE', or 'ALL'
+          BillingMode: PAY_PER_REQUEST   # On-Demand mode, suitable for the free tier
 
   # Lambda Execution Role
   LambdaExecutionRole:
